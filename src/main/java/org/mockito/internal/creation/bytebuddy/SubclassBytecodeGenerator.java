@@ -28,11 +28,8 @@ import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Type;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.Random;
+import java.util.*;
+
 import net.bytebuddy.ByteBuddy;
 import net.bytebuddy.description.method.MethodDescription;
 import net.bytebuddy.description.modifier.SynchronizationState;
@@ -44,6 +41,8 @@ import net.bytebuddy.implementation.FieldAccessor;
 import net.bytebuddy.implementation.Implementation;
 import net.bytebuddy.implementation.attribute.MethodAttributeAppender;
 import net.bytebuddy.matcher.ElementMatcher;
+import net.bytebuddy.utility.GraalImageCode;
+import net.bytebuddy.utility.RandomString;
 import org.mockito.codegen.InjectionBase;
 import org.mockito.exceptions.base.MockitoException;
 import org.mockito.internal.creation.bytebuddy.ByteBuddyCrossClassLoaderSerializationSupport.CrossClassLoaderSerializableMock;
@@ -57,7 +56,6 @@ class SubclassBytecodeGenerator implements BytecodeGenerator {
     private final SubclassLoader loader;
     private final ModuleHandler handler;
     private final ByteBuddy byteBuddy;
-    private final Random random;
     private final Implementation readReplace;
     private final ElementMatcher<? super MethodDescription> matcher;
 
@@ -87,8 +85,7 @@ class SubclassBytecodeGenerator implements BytecodeGenerator {
         this.readReplace = readReplace;
         this.matcher = matcher;
         byteBuddy = new ByteBuddy().with(TypeValidation.DISABLED);
-        random = new Random();
-        handler = ModuleHandler.make(byteBuddy, loader, random);
+        handler = ModuleHandler.make(byteBuddy, loader);
     }
 
     private static boolean needsSamePackageClassLoader(MockFeatures<?> features) {
@@ -172,7 +169,8 @@ class SubclassBytecodeGenerator implements BytecodeGenerator {
                         && features.serializableMode != SerializableMode.ACROSS_CLASSLOADERS
                         && !isComingFromJDK(features.mockedType)
                         && (loader.isDisrespectingOpenness()
-                                || handler.isOpened(features.mockedType, MockAccess.class));
+                                || handler.isOpened(features.mockedType, MockAccess.class))
+                        && !GraalImageCode.getCurrent().isDefined();
         String typeName;
         if (localMock
                 || (loader instanceof MultipleParentClassLoader
@@ -185,7 +183,9 @@ class SubclassBytecodeGenerator implements BytecodeGenerator {
                             + features.mockedType.getSimpleName();
         }
         String name =
-                String.format("%s$%s$%d", typeName, "MockitoMock", Math.abs(random.nextInt()));
+                String.format("%s$%s$%s", typeName, "MockitoMock", GraalImageCode.getCurrent().isDefined()
+                    ? suffix(features)
+                    : RandomString.make());
 
         if (localMock) {
             handler.adjustModuleGraph(features.mockedType, MockAccess.class, false, true);
@@ -269,6 +269,20 @@ class SubclassBytecodeGenerator implements BytecodeGenerator {
                         classLoader,
                         loader.resolveStrategy(features.mockedType, classLoader, localMock))
                 .getLoaded();
+    }
+
+    private static CharSequence suffix(MockFeatures<?> features) {
+        // Constructs a deterministic suffix for this mock to assure that mocks always carry the same name.
+        StringBuilder sb = new StringBuilder();
+        Set<String> names = new TreeSet<>();
+        names.add(features.mockedType.getName());
+        for (Class<?> type : features.interfaces) {
+            names.add(type.getName());
+        }
+        return sb
+            .append(RandomString.hashOf(names.hashCode()))
+            .append(RandomString.hashOf(features.serializableMode.name().hashCode()))
+            .append(features.stripAnnotations ? "S" : "N");
     }
 
     @Override

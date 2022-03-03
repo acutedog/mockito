@@ -11,6 +11,7 @@ import java.lang.reflect.Method;
 
 import net.bytebuddy.dynamic.loading.ClassInjector;
 import net.bytebuddy.dynamic.loading.ClassLoadingStrategy;
+import net.bytebuddy.utility.GraalImageCode;
 import org.mockito.codegen.InjectionBase;
 import org.mockito.exceptions.base.MockitoException;
 import org.mockito.internal.util.Platform;
@@ -30,6 +31,8 @@ class SubclassInjectionLoader implements SubclassLoader {
         if (!Boolean.getBoolean("org.mockito.internal.noUnsafeInjection")
                 && ClassInjector.UsingReflection.isAvailable()) {
             this.loader = new WithReflection();
+        } else if (GraalImageCode.getCurrent().isDefined()) {
+            this.loader = new WithIsolatedLoader();
         } else if (ClassInjector.UsingLookup.isAvailable()) {
             this.loader = tryLookup();
         } else {
@@ -67,6 +70,19 @@ class SubclassInjectionLoader implements SubclassLoader {
                     localMock
                             ? mockedType.getProtectionDomain()
                             : InjectionBase.class.getProtectionDomain());
+        }
+    }
+
+    private static class WithIsolatedLoader implements SubclassLoader {
+
+        @Override
+        public boolean isDisrespectingOpenness() {
+            return false;
+        }
+
+        @Override
+        public ClassLoadingStrategy<ClassLoader> resolveStrategy(Class<?> mockedType, ClassLoader classLoader, boolean localMock) {
+            return ClassLoadingStrategy.Default.WRAPPER;
         }
     }
 

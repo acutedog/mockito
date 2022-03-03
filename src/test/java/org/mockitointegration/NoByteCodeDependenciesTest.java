@@ -15,8 +15,6 @@ import org.mockitoutil.ClassLoaders;
 
 public class NoByteCodeDependenciesTest {
 
-    private ClassLoader contextClassLoader;
-
     @Test
     public void pure_mockito_should_not_depend_bytecode_libraries() throws Exception {
 
@@ -35,6 +33,8 @@ public class NoByteCodeDependenciesTest {
                 "org.mockito.internal.creation.instance.DefaultInstantiatorProvider");
         pureMockitoAPIClasses.remove(
                 "org.mockito.internal.creation.instance.ObjenesisInstantiator");
+        pureMockitoAPIClasses.remove(
+                "org.mockito.internal.creation.instance.ObjenesisInstantiator$UnsafeInstantiatorStrategy");
 
         // Remove classes that trigger plugin-loading, since bytebuddy plugins are the default.
         pureMockitoAPIClasses.remove("org.mockito.internal.debugging.LocationImpl");
